@@ -25,7 +25,7 @@ kubectl apply -f vol-mongo.yaml -n main
 
 ## Subcharts
 
-- MongoDB
+- [MongoDB](https://artifacthub.io/packages/helm/bitnami/mongodb)
 - Mongo Express
 
 ### Install
