@@ -1,0 +1,13 @@
+apiVersion: v2
+name: main
+description: Main umbrella chart with dependencies- mongo, mongo-express
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+dependencies:
+  - name: mongodb
+    version: 15.6.20
+    repository: https://charts.bitnami.com/bitnami
+  - name: mongo-express
+    version: 6.5.2
+    repository: https://cowboysysop.github.io/charts/
