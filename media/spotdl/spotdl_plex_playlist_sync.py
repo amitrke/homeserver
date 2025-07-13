@@ -44,20 +44,42 @@ def process_playlist(plex, playlist_config):
             target_folder = folder
             break
     if target_folder:
-        folder_items = target_folder.fetchItems()
+        folder_items = target_folder.fetchItems(target_folder.key)
     else:
         folder_items = []
-    item = None
-    for track in target_folder.items():
-        if track.title.lower() == 'back to friends':
-            item = track
-            break
-    if item:
-        # Create the playlist with the item
-        newPlaylist = musicLibrary.createPlaylist(playlist_name, items=[item])
-        print(f"Playlist '{playlist_name}' created and item added.")
+
+    # Read the .spotdl file for this playlist
+    spotdl_path = os.path.join(os.path.dirname(__file__), f"{playlist_name}.spotdl")
+    if not os.path.exists(spotdl_path):
+        print(f"SpotDL file not found: {spotdl_path}")
+        return
+    with open(spotdl_path, 'r', encoding='utf-8') as f:
+        spotdl_data = json.load(f)
+    spotdl_songs = spotdl_data.get('songs', [])
+
+    # Match Plex tracks to SpotDL songs by name and artist
+    matched_tracks = []
+    for song in spotdl_songs:
+        song_name = song.get('name', '').strip().lower()
+        song_artist = song.get('artist', '').strip().lower()
+        found = None
+        for track in folder_items:
+            track_name = getattr(track, 'title', '').strip().lower()
+            track_artist = getattr(track, 'artist', '').strip().lower()
+            if track_name == song_name and track_artist == song_artist:
+                found = track
+                break
+        if found:
+            matched_tracks.append(found)
+        else:
+            print(f"Not found in Plex: {song_name} by {song_artist}")
+
+    if matched_tracks:
+        # Create the playlist with the matched tracks in order
+        newPlaylist = musicLibrary.createPlaylist(playlist_name, items=matched_tracks)
+        print(f"Playlist '{playlist_name}' created with {len(matched_tracks)} tracks.")
     else:
-        print(f"Track 'back to friends' not found in the folder '{folder_name}'.")
+        print(f"No tracks matched for playlist '{playlist_name}'.")
 
 # Loop through all playlists in config.json
 for playlist_cfg in config['playlists']:
