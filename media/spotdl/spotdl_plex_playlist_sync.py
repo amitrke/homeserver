@@ -24,38 +24,41 @@ with open(CONFIG_PATH, 'r') as f:
     config = json.load(f)
 
 plex_config = config['plex']
-playlist_config = config['playlists'][0]  # Only using the first playlist for now
 
 baseurl = f"http://{plex_config['host']}:{plex_config['port']}"
 token = plex_config['token']
 plex = PlexServer(baseurl, token)
 
-library_name = playlist_config['library']
-folder_name = playlist_config['folder']
-playlist_name = playlist_config['name']
+def process_playlist(plex, playlist_config):
+    library_name = playlist_config['library']
+    folder_name = playlist_config['folder']
+    playlist_name = playlist_config['name']
 
-englishMusicLibrary = plex.library.section(library_name)
+    musicLibrary = plex.library.section(library_name)
+    folders = musicLibrary.folders()
+    # Find the folder named as specified in config
+    target_folder = None
+    for folder in folders:
+        if folder.title.lower() == folder_name.lower():
+            print(f"Found folder: {folder.title}")
+            target_folder = folder
+            break
+    if target_folder:
+        folder_items = target_folder.fetchItems()
+    else:
+        folder_items = []
+    item = None
+    for track in target_folder.items():
+        if track.title.lower() == 'back to friends':
+            item = track
+            break
+    if item:
+        # Create the playlist with the item
+        newPlaylist = musicLibrary.createPlaylist(playlist_name, items=[item])
+        print(f"Playlist '{playlist_name}' created and item added.")
+    else:
+        print(f"Track 'back to friends' not found in the folder '{folder_name}'.")
 
-folders = englishMusicLibrary.folders()
-# Find the folder named as specified in config
-usTopFolder = None
-for folder in folders:
-    if folder.title.lower() == folder_name.lower():
-        print(f"Found folder: {folder.title}")
-        usTopFolder = folder
-        break
-if usTopFolder:
-    usTopFolder_items = usTopFolder.fetchItems()
-else:
-    usTopFolder_items = []
-item = None
-for track in usTopFolder.items():
-    if track.title.lower() == 'back to friends':
-        item = track
-        break
-if item:
-    # Create the playlist with the item
-    newPlaylist = englishMusicLibrary.createPlaylist(playlist_name, items=[item])
-    print("Playlist created and item added.")
-else:
-    print("Track 'back to friends' not found in the folder.")
+# Loop through all playlists in config.json
+for playlist_cfg in config['playlists']:
+    process_playlist(plex, playlist_cfg)
