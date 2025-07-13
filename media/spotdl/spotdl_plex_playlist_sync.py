@@ -29,6 +29,18 @@ baseurl = f"http://{plex_config['host']}:{plex_config['port']}"
 token = plex_config['token']
 plex = PlexServer(baseurl, token)
 
+def parse_filename(filename):
+    # Remove extension
+    name = os.path.splitext(os.path.basename(filename))[0]
+    # Split by ' - '
+    parts = name.split(' - ')
+    if len(parts) < 3:
+        return None, None, None
+    track_number = parts[0].strip()
+    artist = parts[1].strip().lower()
+    title = parts[2].strip().lower()
+    return track_number, artist, title
+
 def process_playlist(plex, playlist_config):
     library_name = playlist_config['library']
     folder_name = playlist_config['folder']
@@ -57,22 +69,32 @@ def process_playlist(plex, playlist_config):
         spotdl_data = json.load(f)
     spotdl_songs = spotdl_data.get('songs', [])
 
-    # Match Plex tracks to SpotDL songs by name and artist
-    matched_tracks = []
+    # Build a mapping from list_position to SpotDL song
+    spotdl_by_position = {}
     for song in spotdl_songs:
-        song_name = song.get('name', '').strip().lower()
-        song_artist = song.get('artist', '').strip().lower()
-        found = None
-        for track in folder_items:
-            track_name = getattr(track, 'title', '').strip().lower()
-            track_artist = getattr(track, 'artist', '').strip().lower()
-            if track_name == song_name and track_artist == song_artist:
-                found = track
-                break
-        if found:
-            matched_tracks.append(found)
+        pos = song.get('list_position')
+        if pos is not None:
+            spotdl_by_position[str(pos).zfill(2)] = song
+
+    # Build a mapping from track number to Plex track
+    plex_by_tracknum = {}
+    for track in folder_items:
+        if hasattr(track, 'locations') and track.locations:
+            file_tracknum, file_artist, file_title = parse_filename(track.locations[0])
+            if file_tracknum:
+                plex_by_tracknum[file_tracknum] = track
+
+    # Match and sort tracks by list_position
+    matched_tracks = []
+    for pos in sorted(spotdl_by_position.keys(), key=lambda x: int(x)):
+        song = spotdl_by_position[pos]
+        plex_track = plex_by_tracknum.get(pos)
+        if plex_track:
+            matched_tracks.append(plex_track)
         else:
-            print(f"Not found in Plex: {song_name} by {song_artist}")
+            song_name = song.get('name', '').strip().lower()
+            song_artist = song.get('artist', '').strip().lower()
+            print(f"Not found in Plex: {song_name} by {song_artist} (track number {pos})")
 
     if matched_tracks:
         # Create the playlist with the matched tracks in order
