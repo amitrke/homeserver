@@ -97,9 +97,20 @@ def process_playlist(plex, playlist_config):
             print(f"Not found in Plex: {song_name} by {song_artist} (track number {pos})")
 
     if matched_tracks:
-        # Create the playlist with the matched tracks in order
-        newPlaylist = musicLibrary.createPlaylist(playlist_name, items=matched_tracks)
-        print(f"Playlist '{playlist_name}' created with {len(matched_tracks)} tracks.")
+        # Check if playlist already exists
+        existing_playlist = None
+        for pl in musicLibrary.playlists():
+            if pl.title == playlist_name:
+                existing_playlist = pl
+                break
+        if existing_playlist:
+            print(f"Playlist '{playlist_name}' already exists. Removing all items...")
+            existing_playlist.removeItems(existing_playlist.items())
+            existing_playlist.addItems(matched_tracks)
+            print(f"Playlist '{playlist_name}' updated with {len(matched_tracks)} tracks.")
+        else:
+            newPlaylist = musicLibrary.createPlaylist(playlist_name, items=matched_tracks)
+            print(f"Playlist '{playlist_name}' created with {len(matched_tracks)} tracks.")
     else:
         print(f"No tracks matched for playlist '{playlist_name}'.")
 
