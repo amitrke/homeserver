@@ -86,16 +86,29 @@ def process_playlist(plex, playlist_config):
 
     # Match and sort tracks by list_position
     matched_tracks = []
+    diff_log = []
     for pos in sorted(spotdl_by_position.keys(), key=lambda x: int(x)):
         song = spotdl_by_position[pos]
         plex_track = plex_by_tracknum.get(pos)
         if plex_track:
+            # Compare Plex and SpotDL album/artist info
+            plex_album = getattr(plex_track, 'album', '')().title.strip()
+            plex_album_artist = getattr(plex_track, 'album', '')().parentTitle.strip()
+            spotdl_album = song.get('album_name', '').title().strip()
+            spotdl_album_artist = song.get('album_artist', '').title().strip()
+            if plex_album.lower() != spotdl_album.lower() or plex_album_artist.lower() != spotdl_album_artist.lower():
+                diff_log.append({
+                    'track': song.get('name'),
+                    'plex_album': plex_album,
+                    'spotdl_album': spotdl_album,
+                    'plex_album_artist': plex_album_artist,
+                    'spotdl_album_artist': spotdl_album_artist
+                })
             # Update Plex track metadata from SpotDL info
             updates = {}
             if song.get('artist'): updates['artist'] = song['artist']
             if song.get('album_name'): updates['album'] = song['album_name']
             if song.get('album_artist'): updates['albumArtist'] = song['album_artist']
-            #if song.get('cover_url'): updates['thumb'] = song['cover_url']
             if song.get('year'): updates['year'] = song['year']
             if song.get('genres'): updates['genre'] = ', '.join(song['genres'])
             # Only update if there are changes
@@ -110,6 +123,12 @@ def process_playlist(plex, playlist_config):
             song_name = song.get('name', '').strip().lower()
             song_artist = song.get('artist', '').strip().lower()
             print(f"Not found in Plex: {song_name} by {song_artist} (track number {pos})")
+    # Log all detected differences
+    if diff_log:
+        print("--- Album/Artist Differences Detected ---")
+        for entry in diff_log:
+            print(f"Track: {entry['track']} | Plex Album: '{entry['plex_album']}' | SpotDL Album: '{entry['spotdl_album']}' | Plex Album Artist: '{entry['plex_album_artist']}' | SpotDL Album Artist: '{entry['spotdl_album_artist']}'")
+        print("----------------------------------------")
 
     if matched_tracks:
         # Check if playlist already exists
