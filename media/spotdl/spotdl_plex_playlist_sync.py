@@ -90,6 +90,21 @@ def process_playlist(plex, playlist_config):
         song = spotdl_by_position[pos]
         plex_track = plex_by_tracknum.get(pos)
         if plex_track:
+            # Update Plex track metadata from SpotDL info
+            updates = {}
+            if song.get('artist'): updates['artist'] = song['artist']
+            if song.get('album_name'): updates['album'] = song['album_name']
+            if song.get('album_artist'): updates['albumArtist'] = song['album_artist']
+            #if song.get('cover_url'): updates['thumb'] = song['cover_url']
+            if song.get('year'): updates['year'] = song['year']
+            if song.get('genres'): updates['genre'] = ', '.join(song['genres'])
+            # Only update if there are changes
+            if updates:
+                try:
+                    plex_track.edit(**updates)
+                    plex_track.reload()
+                except Exception as e:
+                    print(f"Failed to update metadata for {song.get('name')}: {e}")
             matched_tracks.append(plex_track)
         else:
             song_name = song.get('name', '').strip().lower()
