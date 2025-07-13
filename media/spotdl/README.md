@@ -53,7 +53,7 @@ This project provides a Python script that automates the creation of Plex playli
 1. Place your config.json and `.spotdl` file in the project directory.
 2. Run the Python script:
    ```bash
-   python plex.py
+   python spotdl_plex_playlist_sync.py
    ```
 3. The script will create a new Plex playlist named as specified in config.json, containing the tracks in the order from the `.spotdl` file.
 
