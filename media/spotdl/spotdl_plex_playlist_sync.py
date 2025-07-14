@@ -16,6 +16,8 @@ Requirements:
 
 import json
 import os
+import sys
+import shutil
 from plexapi.server import PlexServer
 
 # Read config.json
@@ -148,6 +150,60 @@ def process_playlist(plex, playlist_config):
     else:
         print(f"No tracks matched for playlist '{playlist_name}'.")
 
-# Loop through all playlists in config.json
-for playlist_cfg in config['playlists']:
-    process_playlist(plex, playlist_cfg)
+def process_files(playlist_config, spotdl_songs):
+    source_path = os.path.join(*playlist_config['sourcePath'])
+    dest_path = os.path.join(*playlist_config['destinationPath'])
+    files = [f for f in os.listdir(source_path) if os.path.isfile(os.path.join(source_path, f))]
+    spotdl_by_tracknum = {}
+    for song in spotdl_songs:
+        pos = song.get('list_position')
+        if pos is not None:
+            spotdl_by_tracknum[str(pos).zfill(2)] = song
+        else:
+            print(f"Missing list_position for song: {song.get('name')}")
+    for file in files:
+        tracknum, artist, title = parse_filename(file)
+        if not tracknum or not artist or not title:
+            print(f"File missing metadata: {file}")
+            continue
+        song = spotdl_by_tracknum.get(tracknum)
+        if not song:
+            print(f"No SpotDL mapping for track number {tracknum} in file: {file}")
+            continue
+        album = song.get('album_name')
+        if not album:
+            print(f"No album name in SpotDL for track {tracknum} ({title})")
+            continue
+        dest_dir = os.path.join(dest_path, artist, album)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_file = os.path.join(dest_dir, file)
+        src_file = os.path.join(source_path, file)
+        if os.path.exists(dest_file):
+            print(f"Destination file already exists: {dest_file}")
+            continue
+        try:
+            shutil.copy2(src_file, dest_file)
+            print(f"Copied {src_file} to {dest_file}")
+        except Exception as e:
+            print(f"Failed to copy {src_file} to {dest_file}: {e}")
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: python spotdl_plex_playlist_sync.py [synchfiles|synchplaylist]")
+        sys.exit(1)
+    mode = sys.argv[1].lower()
+    for playlist_cfg in config['playlists']:
+        spotdl_path = os.path.join(os.path.dirname(__file__), f"{playlist_cfg['name']}.spotdl")
+        if not os.path.exists(spotdl_path):
+            print(f"SpotDL file not found: {spotdl_path}")
+            continue
+        with open(spotdl_path, 'r', encoding='utf-8') as f:
+            spotdl_data = json.load(f)
+        spotdl_songs = spotdl_data.get('songs', [])
+        if mode == "synchfiles":
+            process_files(playlist_cfg, spotdl_songs)
+        elif mode == "synchplaylist":
+            process_playlist(plex, playlist_cfg)
+        else:
+            print("Unknown mode. Use 'synchfiles' or 'synchplaylist'.")
+            sys.exit(1)
