@@ -18,6 +18,7 @@ import json
 import os
 import sys
 import shutil
+import re
 from plexapi.server import PlexServer
 
 # Read config.json
@@ -42,6 +43,10 @@ def parse_filename(filename):
     artist = parts[1].strip().lower()
     title = parts[2].strip().lower()
     return track_number, artist, title
+
+def sanitize_dir_name(name):
+    # Remove or replace invalid Windows path characters
+    return re.sub(r'[<>:"/\\|?*]', '_', name)
 
 def process_playlist(plex, playlist_config):
     library_name = playlist_config['library']
@@ -170,8 +175,15 @@ def process_files(playlist_config, spotdl_songs):
         if not artist or not album:
             print(f"No artist or album name in SpotDL for track {tracknum} ({title})")
             continue
-        dest_dir = os.path.join(dest_path, artist, album)
-        os.makedirs(dest_dir, exist_ok=True)
+        # Sanitize artist and album names for directory creation
+        safe_artist = sanitize_dir_name(artist)
+        safe_album = sanitize_dir_name(album)
+        dest_dir = os.path.join(dest_path, safe_artist, safe_album)
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Failed to create directory {dest_dir}: {e}")
+            continue
         dest_file = os.path.join(dest_dir, file)
         src_file = os.path.join(source_path, file)
         if os.path.exists(dest_file):
