@@ -2,60 +2,47 @@
 
 ## Overview
 
-This project provides a Python script that automates the creation of Plex playlists based on Spotify playlist data. It reads configuration from config.json, fetches music items from a specified Plex library and folder, and uses the song sequence from a `.spotdl` file to create a new Plex playlist in the correct order.
+This project provides a Python script that automates the creation of Plex playlists and organizes music files based on Spotify playlist data. It reads configuration from `config.json`, fetches music items from a specified Plex library and folder, and uses the song sequence from a `.spotdl` file to create a new Plex playlist in the correct order. It also supports organizing music files into artist/album/song structure.
 
 ## Features
 
-- Reads Plex server connection details and playlist configuration from config.json
+- Reads Plex server connection details and playlist configuration from `config.json`
 - Loads Spotify playlist data from a `.spotdl` file (JSON format)
-- Fetches music items from the specified Plex library and folder
+- Organizes music files into artist/album/song structure
 - Matches and orders Plex tracks according to the Spotify playlist sequence
-- Creates a new Plex playlist with the matched tracks in the correct order
+- Creates or updates Plex playlists with the matched tracks in the correct order
+- Logs any issues with missing metadata, duplicate files, or mismatches
+- Supports syncing multiple playlists in one run
 
-## How It Works
+## Modes of Operation
 
-1. **Configuration**  
-   - The script reads config.json for Plex server details and playlist settings.
-   - Example:
-     ```json
-     {
-         "plex": {
-             "host": "ds220plus",
-             "port": 32400,
-             "token": "your_plex_token"
-         },
-         "playlists": [
-             {
-                 "name": "ustop50",
-                 "library": "English Music",
-                 "folder": "ustop50"
-             }
-         ]
-     }
-     ```
+The program supports two main modes, selected via command-line arguments:
 
-2. **Spotify Playlist Data**  
-   - The script loads the `.spotdl` file (e.g., ustop50.spotdl), which contains the Spotify playlist and song metadata.
+### 1. `synchfiles`
+- Uses `sourcePath` and `destinationPath` from the config file (as string lists, joined with `os.path.join()` for cross-platform compatibility).
+- Scans the source folder for music files (no recursion).
+- For each music file, extracts playlist track number, artist, and song name from the filename.
+- Maps this information to the SpotDL file to get the album name.
+- Copies the song to the destination path, organizing as `artist/album/song`, if it doesn’t already exist.
+- If a file is missing metadata, is a duplicate, or the destination file exists with different metadata, logs the issue and skips processing.
 
-3. **Plex Library Access**  
-   - Connects to the Plex server using the provided host, port, and token.
-   - Accesses the specified library and folder to fetch available music items.
-
-4. **Track Matching and Ordering**  
-   - Matches Plex tracks to Spotify tracks using metadata (e.g., track name, artist).
-   - Orders the matched Plex tracks according to the sequence in the `.spotdl` file.
-
-5. **Playlist Creation**  
-   - Creates a new Plex playlist with the matched and ordered tracks.
+### 2. `synchplaylist`
+- Reads the SpotDL file for the playlist.
+- If the playlist exists in Plex, deletes all songs from it; otherwise, creates a new playlist.
+- For each song in the SpotDL file, looks up the Plex item by song name, artist, and album.
+- If the Plex item is not found, logs the missing track and continues.
+- If found, adds the item to the playlist in the order specified by `list_position` in the SpotDL file.
+- No metadata updates are performed for Plex items or albums.
 
 ## Usage
 
-1. Place your config.json and `.spotdl` file in the project directory.
-2. Run the Python script:
-   ```bash
-   python spotdl_plex_playlist_sync.py
-   ```
-3. The script will create a new Plex playlist named as specified in config.json, containing the tracks in the order from the `.spotdl` file.
+```bash
+python spotdl_plex_playlist_sync.py synchfiles
+python spotdl_plex_playlist_sync.py synchplaylist
+```
+- The mode (`synchfiles` or `synchplaylist`) must be provided as the first argument.
+- All configuration (paths, library, folder, etc.) is read from `config.json`.
+- Multiple playlists can be synced in one run (all items in the `playlists` array).
 
 ## Requirements
 
@@ -66,13 +53,18 @@ This project provides a Python script that automates the creation of Plex playli
 ## Notes
 
 - Track matching relies on metadata; ensure your Plex library is well-tagged for best results.
-- The script does not download music; it only organizes existing Plex items into playlists.
+- The script does not download music; it only organizes existing Plex items into playlists and copies files.
+- All logging is done to the console; no log files are generated.
+- If any required metadata is missing in the SpotDL file or music files, the issue is logged and the item is skipped.
+- No recursive search is performed in source folders.
+- No dry-run mode is supported; all actions are performed as described.
 
 ## Example Workflow
 
 1. Export a Spotify playlist using SpotDL to a `.spotdl` file.
-2. Update config.json with your Plex server details and playlist settings.
-3. Run the script to sync the playlist to Plex.
+2. Update `config.json` with your Plex server details, playlist settings, and source/destination paths.
+3. Run the script in `synchfiles` mode to organize and copy music files.
+4. Run the script in `synchplaylist` mode to create or update the Plex playlist, matching the Spotify playlist order.
 
 ---
 
