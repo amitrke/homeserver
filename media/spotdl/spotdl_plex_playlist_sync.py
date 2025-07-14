@@ -45,22 +45,9 @@ def parse_filename(filename):
 
 def process_playlist(plex, playlist_config):
     library_name = playlist_config['library']
-    folder_name = playlist_config['folder']
     playlist_name = playlist_config['name']
 
     musicLibrary = plex.library.section(library_name)
-    folders = musicLibrary.folders()
-    # Find the folder named as specified in config
-    target_folder = None
-    for folder in folders:
-        if folder.title.lower() == folder_name.lower():
-            print(f"Found folder: {folder.title}")
-            target_folder = folder
-            break
-    if target_folder:
-        folder_items = target_folder.fetchItems(target_folder.key)
-    else:
-        folder_items = []
 
     # Read the .spotdl file for this playlist
     spotdl_path = os.path.join(os.path.dirname(__file__), f"{playlist_name}.spotdl")
@@ -78,24 +65,31 @@ def process_playlist(plex, playlist_config):
         if pos is not None:
             spotdl_by_position[str(pos).zfill(2)] = song
 
-    # Build a mapping from track number to Plex track
-    plex_by_tracknum = {}
-    for track in folder_items:
-        if hasattr(track, 'locations') and track.locations:
-            file_tracknum, file_artist, file_title = parse_filename(track.locations[0])
-            if file_tracknum:
-                plex_by_tracknum[file_tracknum] = track
-
-    # Match and sort tracks by list_position
+    # For each SpotDL song, search for the matching Plex track
     matched_tracks = []
     diff_log = []
     for pos in sorted(spotdl_by_position.keys(), key=lambda x: int(x)):
         song = spotdl_by_position[pos]
-        plex_track = plex_by_tracknum.get(pos)
+        song_name = song.get('name', '').strip().lower()
+        song_artist = song.get('artist', '').strip().lower()
+        song_album = song.get('album_name', '').strip().lower()
+        # Search for track in Plex by title only
+        plex_tracks = musicLibrary.searchTracks(title=song_name)
+        plex_track = None
+        for track in plex_tracks:
+            # Filter by artist and album using grandparentTitle and parentTitle
+            plex_artist = getattr(track, 'grandparentTitle', '').strip().lower()
+            plex_album = getattr(track, 'parentTitle', '').strip().lower()
+            if song_artist and plex_artist != song_artist:
+                continue
+            if song_album and plex_album != song_album:
+                continue
+            plex_track = track
+            break
         if plex_track:
             # Compare Plex and SpotDL album/artist info
-            plex_album = getattr(plex_track, 'album', '')().title.strip()
-            plex_album_artist = getattr(plex_track, 'album', '')().parentTitle.strip()
+            plex_album = getattr(plex_track, 'parentTitle', '').strip()
+            plex_album_artist = getattr(plex_track, 'grandparentTitle', '').strip()
             spotdl_album = song.get('album_name', '').title().strip()
             spotdl_album_artist = song.get('album_artist', '').title().strip()
             if plex_album.lower() != spotdl_album.lower() or plex_album_artist.lower() != spotdl_album_artist.lower():
@@ -122,8 +116,6 @@ def process_playlist(plex, playlist_config):
                     print(f"Failed to update metadata for {song.get('name')}: {e}")
             matched_tracks.append(plex_track)
         else:
-            song_name = song.get('name', '').strip().lower()
-            song_artist = song.get('artist', '').strip().lower()
             print(f"Not found in Plex: {song_name} by {song_artist} (track number {pos})")
     # Log all detected differences
     if diff_log:
@@ -154,25 +146,29 @@ def process_files(playlist_config, spotdl_songs):
     source_path = os.path.join(*playlist_config['sourcePath'])
     dest_path = os.path.join(*playlist_config['destinationPath'])
     files = [f for f in os.listdir(source_path) if os.path.isfile(os.path.join(source_path, f))]
-    spotdl_by_tracknum = {}
+    # Build SpotDL mapping by track number and song name
+    spotdl_map = {}
     for song in spotdl_songs:
         pos = song.get('list_position')
-        if pos is not None:
-            spotdl_by_tracknum[str(pos).zfill(2)] = song
+        name = song.get('name', '').strip().lower()
+        if pos is not None and name:
+            spotdl_map[(str(pos).zfill(2), name)] = song
         else:
-            print(f"Missing list_position for song: {song.get('name')}")
+            print(f"Missing list_position or name for song: {song.get('name')}")
     for file in files:
-        tracknum, artist, title = parse_filename(file)
-        if not tracknum or not artist or not title:
-            print(f"File missing metadata: {file}")
+        tracknum, _, title = parse_filename(file)
+        if not tracknum or not title:
+            print(f"File missing track number or song name: {file}")
             continue
-        song = spotdl_by_tracknum.get(tracknum)
+        key = (tracknum, title)
+        song = spotdl_map.get(key)
         if not song:
-            print(f"No SpotDL mapping for track number {tracknum} in file: {file}")
+            print(f"No SpotDL mapping for track number {tracknum} and song name '{title}' in file: {file}")
             continue
+        artist = song.get('artist')
         album = song.get('album_name')
-        if not album:
-            print(f"No album name in SpotDL for track {tracknum} ({title})")
+        if not artist or not album:
+            print(f"No artist or album name in SpotDL for track {tracknum} ({title})")
             continue
         dest_dir = os.path.join(dest_path, artist, album)
         os.makedirs(dest_dir, exist_ok=True)

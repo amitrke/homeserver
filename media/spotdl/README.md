@@ -21,8 +21,8 @@ The program supports two main modes, selected via command-line arguments:
 ### 1. `synchfiles`
 - Uses `sourcePath` and `destinationPath` from the config file (as string lists, joined with `os.path.join()` for cross-platform compatibility).
 - Scans the source folder for music files (no recursion).
-- For each music file, extracts playlist track number, artist, and song name from the filename.
-- Maps this information to the SpotDL file to get the album name.
+- For each music file, extracts playlist track number and song name from the filename.
+- Maps this information to the SpotDL file to get the correct artist name and album name for that track (do not rely on the artist name in the filename).
 - Copies the song to the destination path, organizing as `artist/album/song`, if it doesn’t already exist.
 - If a file is missing metadata, is a duplicate, or the destination file exists with different metadata, logs the issue and skips processing.
 
