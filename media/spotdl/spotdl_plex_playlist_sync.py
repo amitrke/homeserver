@@ -150,6 +150,7 @@ def process_playlist(plex, playlist_config):
 def process_files(playlist_config, spotdl_songs):
     source_path = os.path.join(*playlist_config['sourcePath'])
     dest_path = os.path.join(*playlist_config['destinationPath'])
+    delete_files = playlist_config.get('deleteFilesFromDestination', False)
     files = [f for f in os.listdir(source_path) if os.path.isfile(os.path.join(source_path, f))]
     # Build SpotDL mapping by track number and song name
     spotdl_map = {}
@@ -184,7 +185,21 @@ def process_files(playlist_config, spotdl_songs):
         except Exception as e:
             print(f"Failed to create directory {dest_dir}: {e}")
             continue
-        dest_file = os.path.join(dest_dir, file)
+        # If config says to delete files, do so before copying
+        if delete_files:
+            for f in os.listdir(dest_dir):
+                file_path = os.path.join(dest_dir, f)
+                if os.path.isfile(file_path):
+                    try:
+                        os.remove(file_path)
+                        print(f"Deleted file from destination: {file_path}")
+                    except Exception as e:
+                        print(f"Failed to delete {file_path}: {e}")
+            delete_files = False
+        # Change destination filename to just song name + extension
+        ext = os.path.splitext(file)[1]
+        dest_file_name = f"{title}{ext}"
+        dest_file = os.path.join(dest_dir, dest_file_name)
         src_file = os.path.join(source_path, file)
         if os.path.exists(dest_file):
             print(f"Destination file already exists: {dest_file}")
