@@ -41,12 +41,18 @@ def parse_filename(filename):
         return None, None, None
     track_number = parts[0].strip()
     artist = parts[1].strip().lower()
-    title = parts[2].strip().lower()
+    # Join all remaining parts for the title
+    title = ' - '.join(parts[2:]).strip().lower()
     return track_number, artist, title
 
 def sanitize_dir_name(name):
     # Remove or replace invalid Windows path characters
-    return re.sub(r'[<>:"/\\|?*]', '_', name)
+    name = re.sub(r'[<>:"/\\|?*]', '_', name)
+    # Remove any remaining non-alphanumeric characters except spaces and underscores
+    name = re.sub(r'[^\w\s]', '', name)
+    # Optionally, replace multiple spaces/underscores with a single underscore
+    name = re.sub(r'[\s_]+', '_', name).strip('_')
+    return name
 
 def process_playlist(plex, playlist_config):
     library_name = playlist_config['library']
@@ -76,18 +82,31 @@ def process_playlist(plex, playlist_config):
     for pos in sorted(spotdl_by_position.keys(), key=lambda x: int(x)):
         song = spotdl_by_position[pos]
         song_name = song.get('name', '').strip().lower()
-        song_artist = song.get('artist', '').strip().lower()
+        album_artist = song.get('album_artist', '').strip().lower()
         song_album = song.get('album_name', '').strip().lower()
         # Search for track in Plex by title only
         plex_tracks = musicLibrary.searchTracks(title=song_name)
+        # If no results, try removing (feat. ...) and search again
+        if not plex_tracks or len(plex_tracks) == 0:
+            alt_song_name = re.sub(r'\s*\(feat\.[^)]+\)', '', song_name, flags=re.IGNORECASE)
+            alt_song_name = re.sub(r'\s*\[feat\.[^\]]+\]', '', alt_song_name, flags=re.IGNORECASE)
+            plex_tracks = musicLibrary.searchTracks(title=alt_song_name.strip())
         plex_track = None
         for track in plex_tracks:
             # Filter by artist and album using grandparentTitle and parentTitle
             plex_artist = getattr(track, 'grandparentTitle', '').strip().lower()
             plex_album = getattr(track, 'parentTitle', '').strip().lower()
-            if song_artist and plex_artist != song_artist:
+            album_match = True
+            if song_album:
+                if plex_album != song_album:
+                    # Try removing (feat. ...) and [feat. ...] from song_album and compare again
+                    alt_song_album = re.sub(r'\s*\(feat\.[^)]+\)', '', song_album, flags=re.IGNORECASE)
+                    alt_song_album = re.sub(r'\s*\[feat\.[^\]]+\]', '', alt_song_album, flags=re.IGNORECASE).strip()
+                    if plex_album != alt_song_album:
+                        album_match = False
+            if album_artist and plex_artist != album_artist:
                 continue
-            if song_album and plex_album != song_album:
+            if not album_match:
                 continue
             plex_track = track
             break
@@ -121,7 +140,7 @@ def process_playlist(plex, playlist_config):
                     print(f"Failed to update metadata for {song.get('name')}: {e}")
             matched_tracks.append(plex_track)
         else:
-            print(f"Not found in Plex: {song_name} by {song_artist} (track number {pos})")
+            print(f"Not found in Plex: {song_name} by {album_artist} (track number {pos})")
     # Log all detected differences
     if diff_log:
         print("--- Album/Artist Differences Detected ---")
@@ -136,54 +155,69 @@ def process_playlist(plex, playlist_config):
             if pl.title == playlist_name:
                 existing_playlist = pl
                 break
+        # If playlist exists, delete the playlist and recreate it with the matched tracks
         if existing_playlist:
-            print(f"Playlist '{playlist_name}' already exists. Removing all items...")
-            existing_playlist.removeItems(existing_playlist.items())
-            existing_playlist.addItems(matched_tracks)
-            print(f"Playlist '{playlist_name}' updated with {len(matched_tracks)} tracks.")
-        else:
-            newPlaylist = musicLibrary.createPlaylist(playlist_name, items=matched_tracks)
-            print(f"Playlist '{playlist_name}' created with {len(matched_tracks)} tracks.")
+            existing_playlist.delete()
+        musicLibrary.createPlaylist(playlist_name, items=matched_tracks)
     else:
         print(f"No tracks matched for playlist '{playlist_name}'.")
+
+def normalize_name(name):
+    # Remove (feat. ...) and [feat. ...] from name
+    name = re.sub(r'\s*\(feat\.[^)]+\)', '', name, flags=re.IGNORECASE)
+    name = re.sub(r'\s*\[feat\.[^\]]+\]', '', name, flags=re.IGNORECASE)
+    # Lowercase, remove punctuation, collapse whitespace
+    name = name.lower()
+    name = re.sub(r'[\W_]+', ' ', name)  # Replace non-word chars with space
+    name = re.sub(r'\s+', ' ', name).strip()
+    return name
 
 def process_files(playlist_config, spotdl_songs):
     source_path = os.path.join(*playlist_config['sourcePath'])
     dest_path = os.path.join(*playlist_config['destinationPath'])
     delete_files = playlist_config.get('deleteFilesFromDestination', False)
-    files = [f for f in os.listdir(source_path) if os.path.isfile(os.path.join(source_path, f))]
-    # Build SpotDL mapping by track number and song name
+    files = [f for f in os.listdir(source_path) if os.path.isfile(os.path.join(source_path, f)) and not f.lower().endswith('.spotdl')]
+    # Build SpotDL mapping by normalized track number and song name
     spotdl_map = {}
+    copied_count = 0
+    skipped_count = 0
     for song in spotdl_songs:
         pos = song.get('list_position')
-        name = song.get('name', '').strip().lower()
-        if pos is not None and name:
-            spotdl_map[(str(pos).zfill(2), name)] = song
+        name = song.get('name', '')
+        norm_name = normalize_name(name)
+        if pos is not None and norm_name:
+            spotdl_map[(str(pos).zfill(2), norm_name)] = song
         else:
             print(f"Missing list_position or name for song: {song.get('name')}")
     for file in files:
+        
         tracknum, _, title = parse_filename(file)
-        if not tracknum or not title:
+        norm_title = normalize_name(title)
+        if not tracknum or not norm_title:
             print(f"File missing track number or song name: {file}")
+            skipped_count += 1
             continue
-        key = (tracknum, title)
+        key = (tracknum, norm_title)
         song = spotdl_map.get(key)
         if not song:
             print(f"No SpotDL mapping for track number {tracknum} and song name '{title}' in file: {file}")
+            skipped_count += 1
             continue
-        artist = song.get('artist')
+        album_artist = song.get('album_artist')
         album = song.get('album_name')
-        if not artist or not album:
-            print(f"No artist or album name in SpotDL for track {tracknum} ({title})")
+        if not album_artist or not album:
+            print(f"No album_artist or album name in SpotDL for track {tracknum} ({title})")
+            skipped_count += 1
             continue
-        # Sanitize artist and album names for directory creation
-        safe_artist = sanitize_dir_name(artist)
+        # Sanitize album_artist and album names for directory creation
+        safe_album_artist = sanitize_dir_name(album_artist)
         safe_album = sanitize_dir_name(album)
-        dest_dir = os.path.join(dest_path, safe_artist, safe_album)
+        dest_dir = os.path.join(dest_path, safe_album_artist, safe_album)
         try:
             os.makedirs(dest_dir, exist_ok=True)
         except Exception as e:
             print(f"Failed to create directory {dest_dir}: {e}")
+            skipped_count += 1
             continue
         # If config says to delete files, do so before copying
         if delete_files:
@@ -203,12 +237,16 @@ def process_files(playlist_config, spotdl_songs):
         src_file = os.path.join(source_path, file)
         if os.path.exists(dest_file):
             print(f"Destination file already exists: {dest_file}")
+            skipped_count += 1
             continue
         try:
             shutil.copy2(src_file, dest_file)
             print(f"Copied {src_file} to {dest_file}")
+            copied_count += 1
         except Exception as e:
             print(f"Failed to copy {src_file} to {dest_file}: {e}")
+            skipped_count += 1
+    print(f"Files copied: {copied_count}, Files skipped: {skipped_count}")
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
