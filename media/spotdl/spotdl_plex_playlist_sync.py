@@ -21,8 +21,13 @@ import shutil
 import re
 from plexapi.server import PlexServer
 
-# Read config.json
-CONFIG_PATH = os.path.join(os.path.dirname(__file__), 'config.json')
+# Read config.json (now from argument or default)
+def get_config_path():
+    if len(sys.argv) > 2:
+        return sys.argv[2]
+    return os.path.join(os.path.dirname(__file__), 'config.json')
+
+CONFIG_PATH = get_config_path()
 with open(CONFIG_PATH, 'r') as f:
     config = json.load(f)
 
@@ -250,7 +255,7 @@ def process_files(playlist_config, spotdl_songs):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("Usage: python spotdl_plex_playlist_sync.py [synchfiles|synchplaylist]")
+        print("Usage: python spotdl_plex_playlist_sync.py [synchfiles|synchplaylist] [config.json]")
         sys.exit(1)
     mode = sys.argv[1].lower()
     for playlist_cfg in config['playlists']:
